@@ -4,3 +4,12 @@ compatibility_date = "2024-08-31"
 
 [build]
 command = "cargo install -q worker-build && worker-build --release"
+
+[[kv_namespaces]]
+binding = "dev"
+id = "d2f862c7aa244858b946ead3e3e18a25"
+
+[[d1_databases]]
+binding = "DB" # i.e. available in your Worker on env.DB
+database_name = "arff-dev"
+database_id = "17642d0b-4165-42b5-a2fe-f6e97bae4a08"

@@ -17,6 +17,9 @@ crate-type = ["cdylib"]
 [dependencies]
 worker = { version="0.3.4", features=['http', 'axum', 'd1'] }
 worker-macros = { version="0.3.4", features=['http'] }
-axum  = { version = "0.7", default-features = false }
+axum  = { version = "0.7", default-features = false, features = ["multipart"] }
 tower-service = "0.3.2"
 console_error_panic_hook = { version = "0.1.1" }
+rand = "0.8.5"
+getrandom = { version = "0.2.15", features = ["js"] }
+bytes = "1.7.1"
