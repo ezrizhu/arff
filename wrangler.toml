@@ -13,3 +13,7 @@ id = "d2f862c7aa244858b946ead3e3e18a25"
 binding = "DB" # i.e. available in your Worker on env.DB
 database_name = "arff-dev"
 database_id = "17642d0b-4165-42b5-a2fe-f6e97bae4a08"
+
+[[r2_buckets]]
+binding = "arff-dev"
+bucket_name = "arff-dev"

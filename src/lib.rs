@@ -1,25 +1,25 @@
 use axum::{
+    body::Body,
+    extract::{Multipart, Path, State},
+    http::Request,
+    http::StatusCode,
+    response::Response,
     routing::{get, post},
     Router,
-    extract::{Path, State, Multipart},
-    http::Request,
-    response::Response,
-    body::Body,
-    http::StatusCode,
 };
-use rand::Rng;
 use tower_service::Service;
 use worker::*;
+mod s3;
+mod utils;
 
 fn router(env: Env) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/:name", get(get_object))
         .route("/", post(post_object))
+        .route("/", get(home))
         .with_state(env)
 }
-
-const KV_NS: &str = "dev";
 
 #[event(fetch)]
 async fn fetch(
@@ -32,85 +32,65 @@ async fn fetch(
 }
 
 pub async fn health(req: Request<axum::body::Body>) -> String {
-    format!("Arff! Served from {}",
-        req.extensions().get::<worker::Cf>().unwrap().colo())
+    format!(
+        "Arff! Served from {}",
+        req.extensions().get::<worker::Cf>().unwrap().colo()
+    )
+}
+
+pub async fn home() -> String {
+    String::from("*barks* x3")
 }
 
 #[worker::send]
-pub async fn get_object(
-    Path(name): Path<String>,
-    State(env): State<Env>,
-) -> Response {
-    let kv = env.kv(KV_NS).unwrap();
-    let resp = match kv.get(name.as_str()).text().await {
-        Ok(Some(obj)) => {
-            Response::builder()
-                .status(StatusCode::OK)
-                .header("Content-Type", "text/plain")
-                .body(Body::from(obj))
-                .unwrap()
-        }
-        Ok(None) => {
-            Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .header("Content-Type", "text/plain")
-                .body(Body::from("Not Found"))
-                .unwrap()
-        }
-        Err(error) => {
-            Response::builder()
-                .status(StatusCode::OK)
-                .header("Content-Type", "text/plain")
-                .body(Body::from("Internal Server Error".to_string()+error.to_string().as_str()))
-                .unwrap()
-        }
+pub async fn get_object(Path(id): Path<String>, State(env): State<Env>) -> Response {
+    let resp = match s3::get(env, id).await {
+        Ok(Some(obj)) => Response::builder()
+            .status(StatusCode::OK)
+            .header("Content-Type", "text/plain")
+            .body(Body::from(obj))
+            .unwrap(),
+        Ok(None) => Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .header("Content-Type", "text/plain")
+            .body(Body::from("Not Found"))
+            .unwrap(),
+        Err(error) => Response::builder()
+            .status(StatusCode::OK)
+            .header("Content-Type", "text/plain")
+            .body(Body::from(
+                "Internal Server Error".to_string() + error.to_string().as_str(),
+            ))
+            .unwrap(),
     };
     resp
 }
 
 #[worker::send]
-pub async fn post_object(
-    State(env): State<Env>,
-    mut multipart: Multipart,
-) -> Response {
+pub async fn post_object(State(env): State<Env>, mut multipart: Multipart) -> Response {
     match multipart.next_field().await {
         Ok(Some(field)) => {
-            let data = field.text().await.unwrap();
-    let kv = env.kv(KV_NS).unwrap();
+            let data = field.bytes().await.unwrap().to_vec();
+            let id = utils::gen_id();
 
-    const HEX_CHARS: &[u8] = b"0123456789abcdef";
-    let mut rng = rand::thread_rng();
-    let id: String = (0..6)
-        .map(|_| HEX_CHARS[rng.gen_range(0..16)] as char)
-        .collect();
-
-    match kv.put(id.as_str(), data) {
-        Ok(opt) => {
-            match opt.execute().await {
-                Ok(_) => {
+            match s3::put(env, id.clone(), data).await {
+                Ok(()) => {
                     return Response::builder()
                         .status(StatusCode::OK)
                         .header("Content-Type", "text/plain")
-                        .body(Body::from(id))
+                        .body(Body::from(id.clone()))
                         .unwrap()
                 }
-                Err(error) => {
+                Err(err) => {
                     return Response::builder()
                         .status(StatusCode::OK)
                         .header("Content-Type", "text/plain")
-                        .body(Body::from("Internal Server Error".to_string()+error.to_string().as_str()))
+                        .body(Body::from(
+                            "Internal Server Error".to_string() + err.to_string().as_str(),
+                        ))
                         .unwrap()
                 }
             }
-        }
-        Err(error) => {
-            return Response::builder()
-                .status(StatusCode::OK)
-                .header("Content-Type", "text/plain")
-                .body(Body::from("Internal Server Error".to_string()+error.to_string().as_str()))
-                .unwrap()
-        }
-    };
         }
         Ok(None) => {
             return Response::builder()
@@ -118,7 +98,6 @@ pub async fn post_object(
                 .header("Content-Type", "text/plain")
                 .body(Body::from("Internal Server Error - none next field"))
                 .unwrap()
-
         }
         Err(_) => {
             return Response::builder()
@@ -126,8 +105,6 @@ pub async fn post_object(
                 .header("Content-Type", "text/plain")
                 .body(Body::from("Internal Server Error - multipart err"))
                 .unwrap()
-
         }
     };
-
 }
