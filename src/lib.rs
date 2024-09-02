@@ -15,6 +15,8 @@ mod kv;
 mod s3;
 mod utils;
 
+const DOMAIN: &str = "arf.sh";
+
 fn router(env: Env) -> Router {
     Router::new()
         .route("/health", get(health))
@@ -46,11 +48,12 @@ pub async fn home() -> String {
 }
 
 #[worker::send]
-pub async fn get_object(Path(id): Path<String>, State(env): State<Env>) -> Response {
+pub async fn get_object(Path(path): Path<String>, State(env): State<Env>) -> Response {
+    let id: &str = path.split('.').next().unwrap_or(path.as_str());
     let resp = match s3::get(&env, &id).await {
-        Ok(Some(obj)) => Response::builder()
+        Ok(Some((obj, content_type))) => Response::builder()
             .status(StatusCode::OK)
-            .header("Content-Type", "text/plain")
+            .header("Content-Type", content_type)
             .body(Body::from(obj))
             .unwrap(),
         Ok(None) => Response::builder()
@@ -59,7 +62,7 @@ pub async fn get_object(Path(id): Path<String>, State(env): State<Env>) -> Respo
             .body(Body::from("Not Found"))
             .unwrap(),
         Err(error) => Response::builder()
-            .status(StatusCode::OK)
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
             .header("Content-Type", "text/plain")
             .body(Body::from(
                 "Internal Server Error".to_string() + error.to_string().as_str(),
@@ -85,15 +88,24 @@ pub async fn post_object(
 
     match multipart.next_field().await {
         Ok(Some(field)) => {
+            let file_name = field.file_name().unwrap().to_string();
+            let file_name_split: Vec<&str> = file_name.split('.').collect();
+            let content_type = field.content_type().unwrap().to_string();
             let data = field.bytes().await.unwrap().to_vec();
+            let ext = if file_name_split.len() != 2 {
+                "".to_owned()
+            } else {
+                ".".to_owned()+file_name_split[1]
+            };
+
             let id = utils::gen_id();
 
-            match s3::put(&env, &id, &data).await {
+            match s3::put(&env, &id, &data, &content_type).await {
                 Ok(()) => {
                     return Response::builder()
                         .status(StatusCode::OK)
                         .header("Content-Type", "text/plain")
-                        .body(Body::from(id.clone()))
+                        .body(Body::from(format!("{}/{}{}\n", DOMAIN, id.clone(), ext)))
                         .unwrap()
                 }
                 Err(err) => {
