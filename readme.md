@@ -1,15 +1,15 @@
-PATHS
+# Arff!
 
-GET arf.sh /upload
-POST arf.sh /upload
+File uploader powered by Cloudflare workers, KV, and R2
 
-filetypes
-images, videos, html
-pdf
-binary
-txt
+Usage Examples
 
-auto will done with kv
-userID:key, with built-in expirey times for temp upload rights
-also incl. a simple html page for creating the upload POSTs on browers
+`curl -H 'Authorization: Bearer key' -F'file=@file.pdf' arf.sh`
 
+`cat test | curl -H 'Authorization: Bearer key' -F'file=@-' arf.sh`
+
+`curl -H 'Authorization: Bearer key' -F'file=@LICENSE;type=text/plain' arf.sh`
+
+Account are created via a Cloudflare KV pair.
+
+`Authentication: Bearer userID.secret`
