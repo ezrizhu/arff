@@ -5,7 +5,7 @@ use axum::{
     http::Request,
     http::StatusCode,
     response::Response,
-    routing::{get, post},
+    routing::{get, post, put, delete},
     Router,
 };
 use tower_http::cors::{Any, CorsLayer};
@@ -34,6 +34,8 @@ fn router(env: Env) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/:name", get(get_object))
+        .route("/:name", put(update_object))
+        .route("/:name", delete(delete_object))
         .route("/", post(post_object))
         .route("/", get(home))
         .layer(layer)
@@ -100,6 +102,8 @@ pub async fn post_object(
             .unwrap();
     }
 
+    let id = utils::gen_id();
+
     match multipart.next_field().await {
         Ok(Some(field)) => {
             let file_name = field.file_name().unwrap().to_string();
@@ -112,8 +116,6 @@ pub async fn post_object(
                 ".".to_owned() + file_name_split[1]
             };
 
-            let id = utils::gen_id();
-
             match s3::put(&env, &id, &data, &content_type).await {
                 Ok(()) => {
                     return Response::builder()
@@ -124,7 +126,7 @@ pub async fn post_object(
                 }
                 Err(err) => {
                     return Response::builder()
-                        .status(StatusCode::OK)
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
                         .header("Content-Type", "text/plain")
                         .body(Body::from(
                             "Internal Server Error".to_string() + err.to_string().as_str(),
@@ -135,14 +137,112 @@ pub async fn post_object(
         }
         Ok(None) => {
             return Response::builder()
-                .status(StatusCode::OK)
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .header("Content-Type", "text/plain")
                 .body(Body::from("Internal Server Error - none next field"))
                 .unwrap()
         }
         Err(_) => {
             return Response::builder()
-                .status(StatusCode::OK)
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .header("Content-Type", "text/plain")
+                .body(Body::from("Internal Server Error - multipart err"))
+                .unwrap()
+        }
+    };
+}
+
+#[worker::send]
+pub async fn delete_object(
+    State(env): State<Env>,
+    Path(path): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let id: &str = path.split('.').next().unwrap_or(path.as_str());
+    if let Err(()) = auth::check(&headers, &env).await {
+        return Response::builder()
+            .status(StatusCode::UNAUTHORIZED)
+            .header("Content-Type", "text/plain")
+            .body(Body::from("unauthorized"))
+            .unwrap();
+    }
+    match s3::delete(&env, &id).await {
+        Ok(()) => {
+           return Response::builder()
+               .status(StatusCode::OK)
+               .header("Content-Type", "text/plain")
+               .body(Body::from("Deleted"))
+               .unwrap()
+        }
+        Err(err) => {
+           return Response::builder()
+               .status(StatusCode::OK)
+               .header("Content-Type", "text/plain")
+               .body(Body::from(
+                   "Internal Server Error".to_string() + err.to_string().as_str(),
+               ))
+               .unwrap()
+        }
+    }
+}
+
+#[worker::send]
+pub async fn update_object(
+    State(env): State<Env>,
+    Path(path): Path<String>,
+    headers: HeaderMap,
+    mut multipart: Multipart,
+) -> Response {
+    let id: &str = path.split('.').next().unwrap_or(path.as_str());
+    if let Err(()) = auth::check(&headers, &env).await {
+        return Response::builder()
+            .status(StatusCode::UNAUTHORIZED)
+            .header("Content-Type", "text/plain")
+            .body(Body::from("unauthorized"))
+            .unwrap();
+    }
+
+    match multipart.next_field().await {
+        Ok(Some(field)) => {
+            let file_name = field.file_name().unwrap().to_string();
+            let file_name_split: Vec<&str> = file_name.split('.').collect();
+            let content_type = field.content_type().unwrap().to_string();
+            let data = field.bytes().await.unwrap().to_vec();
+            let ext = if file_name_split.len() != 2 {
+                "".to_owned()
+            } else {
+                ".".to_owned() + file_name_split[1]
+            };
+
+            match s3::put(&env, &id.to_string(), &data, &content_type).await {
+                Ok(()) => {
+                    return Response::builder()
+                        .status(StatusCode::OK)
+                        .header("Content-Type", "text/plain")
+                        .body(Body::from(format!("{}/{}{}\n", DOMAIN, id, ext)))
+                        .unwrap()
+                }
+                Err(err) => {
+                    return Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .header("Content-Type", "text/plain")
+                        .body(Body::from(
+                            "Internal Server Error".to_string() + err.to_string().as_str(),
+                        ))
+                        .unwrap()
+                }
+            }
+        }
+        Ok(None) => {
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .header("Content-Type", "text/plain")
+                .body(Body::from("Internal Server Error - none next field"))
+                .unwrap()
+        }
+        Err(_) => {
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .header("Content-Type", "text/plain")
                 .body(Body::from("Internal Server Error - multipart err"))
                 .unwrap()

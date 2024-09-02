@@ -42,3 +42,8 @@ pub async fn get(env: &worker::Env, id: &str) -> Result<Option<(Vec<u8>, String)
         None => return Ok(None),
     }
 }
+
+pub async fn delete(env: &worker::Env, id: &str) -> Result<(), Error> {
+    let bucket = env.bucket(BUCKET_NAME)?;
+    bucket.delete(id).await
+}
