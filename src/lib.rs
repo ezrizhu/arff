@@ -1,6 +1,7 @@
 use axum::{
     body::Body,
     extract::{Multipart, Path, State},
+    http::header::HeaderMap,
     http::Request,
     http::StatusCode,
     response::Response,
@@ -8,7 +9,9 @@ use axum::{
     Router,
 };
 use tower_service::Service;
-use worker::*;
+use worker::{event, Context, Env, HttpRequest, Result};
+mod auth;
+mod kv;
 mod s3;
 mod utils;
 
@@ -44,7 +47,7 @@ pub async fn home() -> String {
 
 #[worker::send]
 pub async fn get_object(Path(id): Path<String>, State(env): State<Env>) -> Response {
-    let resp = match s3::get(env, id).await {
+    let resp = match s3::get(&env, &id).await {
         Ok(Some(obj)) => Response::builder()
             .status(StatusCode::OK)
             .header("Content-Type", "text/plain")
@@ -67,13 +70,25 @@ pub async fn get_object(Path(id): Path<String>, State(env): State<Env>) -> Respo
 }
 
 #[worker::send]
-pub async fn post_object(State(env): State<Env>, mut multipart: Multipart) -> Response {
+pub async fn post_object(
+    State(env): State<Env>,
+    headers: HeaderMap,
+    mut multipart: Multipart,
+) -> Response {
+    if let Err(()) = auth::check(&headers, &env).await {
+        return Response::builder()
+            .status(StatusCode::UNAUTHORIZED)
+            .header("Content-Type", "text/plain")
+            .body(Body::from("unauthorized"))
+            .unwrap();
+    }
+
     match multipart.next_field().await {
         Ok(Some(field)) => {
             let data = field.bytes().await.unwrap().to_vec();
             let id = utils::gen_id();
 
-            match s3::put(env, id.clone(), data).await {
+            match s3::put(&env, &id, &data).await {
                 Ok(()) => {
                     return Response::builder()
                         .status(StatusCode::OK)
