@@ -30,9 +30,9 @@ pub async fn get(env: &worker::Env, id: &str) -> Result<Option<(Vec<u8>, String)
         Some(obj) => match obj.body() {
             Some(data) => {
                 if let Some(content_type) = obj.http_metadata().content_type {
-                    return Ok(Some((data.bytes().await?, content_type)))
+                    return Ok(Some((data.bytes().await?, content_type)));
                 } else {
-                    return Err(Error::from("metadata not found"))
+                    return Err(Error::from("metadata not found"));
                 }
             }
             None => {

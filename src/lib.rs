@@ -8,6 +8,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use tower_http::cors::{Any, CorsLayer};
 use tower_service::Service;
 use worker::{event, Context, Env, HttpRequest, Result};
 mod auth;
@@ -16,13 +17,26 @@ mod s3;
 mod utils;
 
 const DOMAIN: &str = "arf.sh";
+const HOME: &str = "99ec24";
 
 fn router(env: Env) -> Router {
+    let origins = [
+        "http://arf.sh".parse().unwrap(),
+        "https://arf.sh".parse().unwrap(),
+    ];
+
+    let layer = CorsLayer::new()
+        .allow_headers(Any)
+        .allow_methods(Any)
+        .expose_headers(Any)
+        .allow_origin(origins);
+
     Router::new()
         .route("/health", get(health))
         .route("/:name", get(get_object))
         .route("/", post(post_object))
         .route("/", get(home))
+        .layer(layer)
         .with_state(env)
 }
 
@@ -43,8 +57,8 @@ pub async fn health(req: Request<axum::body::Body>) -> String {
     )
 }
 
-pub async fn home() -> String {
-    String::from("*barks* x3")
+pub async fn home(State(env): State<Env>) -> Response {
+    get_object(Path(HOME.to_string()), State(env)).await
 }
 
 #[worker::send]
@@ -95,7 +109,7 @@ pub async fn post_object(
             let ext = if file_name_split.len() != 2 {
                 "".to_owned()
             } else {
-                ".".to_owned()+file_name_split[1]
+                ".".to_owned() + file_name_split[1]
             };
 
             let id = utils::gen_id();

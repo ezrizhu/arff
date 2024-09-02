@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>arf.sh</title>
+        <meta charset="utf-8" />
+        <meta name="description" content="A private file host.">
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="theme-color" content="#1c1624">
+        <meta property="og:type" content="website">
+        <meta property="og:title" content="Arff!">
+        <meta property="og:description" content="A private file host.">
+        <meta property="og:theme-color" content="#1c1624">
+        <script>
+            function submitForm(event) {
+                event.preventDefault();
+                const urlParams = new URLSearchParams(window.location.search);
+                const key = urlParams.get('key');
+                const formData = new FormData(event.target);
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', 'https://arf.sh');
+                xhr.setRequestHeader('Authorization', 'Bearer ' + key);
+                xhr.send(formData);
+            }
+        </script>
+        <style>
+body {
+    color: oklch(94.11% 0.0397 314.07);
+    background-color: oklch(21.56% 0.0286 303.92);
+    font-family: system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+    font-size: 1rem;
+    padding: 0;
+    margin: 0;
+    white-space: nowrap;
+}
+div {
+    margin: 1vw;
+    position: absolute;
+    top: 30%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+a {
+    color: oklch(78.23% 0.1513 336.5)
+}
+footer {
+    padding: 1rem;
+    font-size: 0.75rem;
+    text-align: center;
+}
+        </style>
+    </head>
+    <body>
+        <div>
+            <h2>Arff! - A private file host.</h2>
+            <p>
+            Powered by Cloudflare <a href="https://workers.cloudflare.com/">Workers</a>,
+            <a href="https://www.cloudflare.com/developer-platform/r2/">R2</a>,
+            and <a href="https://developers.cloudflare.com/kv/">KV</a>.
+            <br />
+            Abuse contact: <a href="mailto:me@ezrizhu.com">me@ezrizhu.com</a>
+            </p>
+            <form onsubmit="submitForm(event)" enctype="multipart/form-data">
+                <label>Web Uploader (key required):</label><br />
+                <input class="form-control" type="file" name="file" style="width:250px;"><br />
+                <input class="form-control" type="submit" value="Submit">
+            </form>
+            <footer>
+                <p>
+                <a href="https://github.com/ezrizhu/arff">Source Code</a>
+                Released under the MIT License
+                </p>
+            </footer>
+        </div>
+    </body>
+</html>
