@@ -1,6 +1,6 @@
 use axum::{
     body::Body,
-    extract::{Multipart, Path, State},
+    extract::{Multipart, Path, State, DefaultBodyLimit},
     http::header::HeaderMap,
     http::Request,
     http::StatusCode,
@@ -39,6 +39,7 @@ fn router(env: Env) -> Router {
         .route("/", post(post_object))
         .route("/", get(home))
         .layer(layer)
+        .layer(DefaultBodyLimit::disable())
         .with_state(env)
 }
 
@@ -88,35 +89,36 @@ pub async fn get_object(Path(path): Path<String>, State(env): State<Env>) -> Res
     resp
 }
 
-#[worker::send]
-pub async fn post_object(
-    State(env): State<Env>,
-    headers: HeaderMap,
+async fn upload(
+    env: Env,
     mut multipart: Multipart,
+    id: &String,
 ) -> Response {
-    if let Err(()) = auth::check(&headers, &env).await {
-        return Response::builder()
-            .status(StatusCode::UNAUTHORIZED)
-            .header("Content-Type", "text/plain")
-            .body(Body::from("unauthorized"))
-            .unwrap();
-    }
-
-    let id = utils::gen_id();
-
     match multipart.next_field().await {
         Ok(Some(field)) => {
             let file_name = field.file_name().unwrap().to_string();
             let file_name_split: Vec<&str> = file_name.split('.').collect();
             let content_type = field.content_type().unwrap().to_string();
-            let data = field.bytes().await.unwrap().to_vec();
+            let data = match field.bytes().await {
+                Ok(bytes) => {
+                bytes.to_vec()
+            } Err(err) => {
+                    return Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .header("Content-Type", "text/plain")
+                        .body(Body::from(
+                            "Internal Server Error".to_string() + err.body_text().as_str()
+                        ))
+                        .unwrap()
+            }
+            };
             let ext = if file_name_split.len() != 2 {
                 "".to_owned()
             } else {
                 ".".to_owned() + file_name_split[1]
             };
 
-            match s3::put(&env, &id, &data, &content_type).await {
+            match s3::put(&env, id, &data, &content_type).await {
                 Ok(()) => {
                     return Response::builder()
                         .status(StatusCode::OK)
@@ -150,6 +152,24 @@ pub async fn post_object(
                 .unwrap()
         }
     };
+}
+
+#[worker::send]
+pub async fn post_object(
+    State(env): State<Env>,
+    headers: HeaderMap,
+    multipart: Multipart,
+) -> Response {
+    if let Err(()) = auth::check(&headers, &env).await {
+        return Response::builder()
+            .status(StatusCode::UNAUTHORIZED)
+            .header("Content-Type", "text/plain")
+            .body(Body::from("unauthorized"))
+            .unwrap();
+    }
+
+    let id = utils::gen_id();
+    upload(env, multipart, &id).await
 }
 
 #[worker::send]
@@ -191,9 +211,8 @@ pub async fn update_object(
     State(env): State<Env>,
     Path(path): Path<String>,
     headers: HeaderMap,
-    mut multipart: Multipart,
+    multipart: Multipart,
 ) -> Response {
-    let id: &str = path.split('.').next().unwrap_or(path.as_str());
     if let Err(()) = auth::check(&headers, &env).await {
         return Response::builder()
             .status(StatusCode::UNAUTHORIZED)
@@ -201,51 +220,7 @@ pub async fn update_object(
             .body(Body::from("unauthorized"))
             .unwrap();
     }
+    let id: &str = path.split('.').next().unwrap_or(path.as_str());
 
-    match multipart.next_field().await {
-        Ok(Some(field)) => {
-            let file_name = field.file_name().unwrap().to_string();
-            let file_name_split: Vec<&str> = file_name.split('.').collect();
-            let content_type = field.content_type().unwrap().to_string();
-            let data = field.bytes().await.unwrap().to_vec();
-            let ext = if file_name_split.len() != 2 {
-                "".to_owned()
-            } else {
-                ".".to_owned() + file_name_split[1]
-            };
-
-            match s3::put(&env, &id.to_string(), &data, &content_type).await {
-                Ok(()) => {
-                    return Response::builder()
-                        .status(StatusCode::OK)
-                        .header("Content-Type", "text/plain")
-                        .body(Body::from(format!("{}/{}{}\n", DOMAIN, id, ext)))
-                        .unwrap()
-                }
-                Err(err) => {
-                    return Response::builder()
-                        .status(StatusCode::INTERNAL_SERVER_ERROR)
-                        .header("Content-Type", "text/plain")
-                        .body(Body::from(
-                            "Internal Server Error".to_string() + err.to_string().as_str(),
-                        ))
-                        .unwrap()
-                }
-            }
-        }
-        Ok(None) => {
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .header("Content-Type", "text/plain")
-                .body(Body::from("Internal Server Error - none next field"))
-                .unwrap()
-        }
-        Err(_) => {
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .header("Content-Type", "text/plain")
-                .body(Body::from("Internal Server Error - multipart err"))
-                .unwrap()
-        }
-    };
+    upload(env, multipart, &id.to_string()).await
 }
