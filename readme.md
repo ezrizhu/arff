@@ -32,7 +32,7 @@ Account are created via a Cloudflare KV pair.
 
 ### ShareX Custom Uploader
 
-If you use ShareX and wish to use arf.sh, you may do so by using this Custom Uploader preset: https://arf.sh/06afe7.sxcu
+If you use ShareX and wish to use arf.sh, you may do so by using this Custom Uploader preset: https://arf.sh/2b63c4.sxcu
 
 Make sure to change the marked value to include your authorization token.
 
